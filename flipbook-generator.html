@@ -31,13 +31,11 @@
       <input type="file" id="file-input" accept="video/*" class="hidden" />
     </section>
 
-    <!-- 設定パネル（ファイル選択後に表示） -->
+    <!-- 設定パネル -->
     <section id="settings-section" class="hidden space-y-4 border-t border-zinc-800 pt-4">
-      <!-- 選択中の動画プレビュー (非表示の作業用) -->
       <video id="video-element" class="hidden" playsinline muted></video>
       <canvas id="work-canvas" class="hidden"></canvas>
 
-      <!-- 1. スタイル選択 -->
       <div class="space-y-1.5">
         <label for="filter-style" class="block text-xs font-medium text-zinc-300">アートスタイル</label>
         <select id="filter-style" class="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs rounded-lg p-2.5 focus:outline-none focus:border-zinc-500">
@@ -47,7 +45,6 @@
         </select>
       </div>
 
-      <!-- 2. 出力サイズ選択 (新規追加) -->
       <div class="space-y-1.5">
         <label for="size-select" class="block text-xs font-medium text-zinc-300">出力サイズ</label>
         <select id="size-select" class="w-full bg-zinc-950 border border-zinc-800 text-zinc-200 text-xs rounded-lg p-2.5 focus:outline-none focus:border-zinc-500">
@@ -57,7 +54,6 @@
         </select>
       </div>
 
-      <!-- 3. コマ数（FPS）設定 -->
       <div class="space-y-1">
         <div class="flex justify-between text-xs">
           <span class="text-zinc-300">パラパラ感 (1秒あたりのコマ数)</span>
@@ -66,7 +62,6 @@
         <input type="range" id="fps-slider" min="3" max="12" value="6" class="w-full h-1.5 bg-zinc-800 rounded-lg appearance-none cursor-pointer accent-zinc-100">
       </div>
 
-      <!-- 変換実行ボタン -->
       <button 
         id="convert-btn" 
         class="w-full py-3 bg-zinc-100 hover:bg-white text-zinc-900 font-semibold text-xs rounded-xl shadow transition-colors cursor-pointer"
@@ -86,10 +81,9 @@
       </div>
     </section>
 
-    <!-- 出力・プレビュー表示 -->
+    <!-- 出力表示 -->
     <section id="result-section" class="hidden space-y-4 border-t border-zinc-800 pt-4">
       <div class="text-xs text-center font-medium text-zinc-300">✓ 生成が完了しました</div>
-      <!-- プレビューの高さを広げて見やすく調整 -->
       <div class="flex justify-center bg-black border border-zinc-800 rounded-xl p-2 min-h-[200px] items-center overflow-hidden">
         <img id="result-gif" class="w-full h-auto max-h-[600px] rounded-lg object-contain" alt="生成されたGIF">
       </div>
@@ -102,14 +96,12 @@
       </a>
     </section>
 
-    <!-- ダッシュボードへ戻る -->
     <footer class="border-t border-zinc-800 pt-4 text-center">
       <a href="./index.html" class="text-xs text-zinc-500 hover:text-zinc-300 transition-colors font-mono">← Dashboard に戻る</a>
     </footer>
 
   </main>
 
-  <!-- gif.js ライブラリ (ブラウザでGIFを結合) -->
   <script src="https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.js"></script>
 
   <script>
@@ -137,12 +129,10 @@
 
     let selectedFile = null;
 
-    // --- スライダー連動 ---
     fpsSlider.addEventListener('input', (e) => {
       fpsLabel.textContent = `${e.target.value} コマ/秒`;
     });
 
-    // --- ドラッグ＆ドロップ対応 ---
     ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
       dropZone.addEventListener(eventName, preventDefaults, false);
     });
@@ -162,7 +152,6 @@
       }
     });
 
-    // --- クリックでのファイル選択 ---
     dropZone.addEventListener('click', () => fileInput.click());
     fileInput.addEventListener('change', (e) => {
       if (e.target.files.length > 0) {
@@ -170,7 +159,6 @@
       }
     });
 
-    // 共通のファイル選択処理
     function handleFileSelect(file) {
       if (!file.type.startsWith('video/')) {
         alert('動画ファイルを選択してください。');
@@ -184,7 +172,6 @@
       progressSection.classList.add('hidden');
     }
 
-    // --- 変換実行処理 ---
     convertBtn.addEventListener('click', async () => {
       if (!selectedFile) return;
 
@@ -196,25 +183,32 @@
       progressPercent.textContent = '0%';
 
       try {
-        // メタデータの読み込み待機処理
-        if (videoEl.readyState < 1) {
+        // 【スマホ対応ハック1】メディアロックの解除
+        // ユーザーがボタンを押したこの瞬間に、再生アクションを起こしてロックを外す
+        try {
+          await videoEl.play();
+          videoEl.pause();
+        } catch (e) {
+          console.warn("メディアの自動再生ロック解除をスキップしました");
+        }
+
+        // スマホ用に少し深い読み込み状態(HAVE_CURRENT_DATA以上)を待つ
+        if (videoEl.readyState < 2) {
           await new Promise(resolve => {
-            videoEl.addEventListener('loadedmetadata', resolve, { once: true });
+            videoEl.addEventListener('loadeddata', resolve, { once: true });
           });
         }
 
-        const duration = Math.min(videoEl.duration, 10); // 最大10秒に制限
+        const duration = Math.min(videoEl.duration, 10);
         const fps = parseInt(fpsSlider.value);
         const totalFrames = Math.floor(duration * fps);
         const interval = 1 / fps;
 
-        // 指定された幅を取得してサイズを計算
         const targetWidth = parseInt(sizeSelect.value);
         const targetHeight = Math.round((videoEl.videoHeight / videoEl.videoWidth) * targetWidth);
         canvas.width = targetWidth;
         canvas.height = targetHeight;
 
-        // Web WorkerのCORSエラー回避
         const workerBlob = new Blob(
           ["importScripts('https://cdnjs.cloudflare.com/ajax/libs/gif.js/0.2.0/gif.worker.js');"],
           { type: 'application/javascript' }
@@ -231,7 +225,6 @@
 
         statusText.textContent = 'フレームを抽出・加工中...';
 
-        // 1コマずつシークしてキャプチャ＆画像処理
         for (let i = 0; i < totalFrames; i++) {
           const targetTime = i * interval;
           
@@ -239,7 +232,15 @@
             if (videoEl.currentTime === targetTime) {
               resolve();
             } else {
-              videoEl.addEventListener('seeked', resolve, { once: true });
+              // 【スマホ対応ハック2】無限フリーズ防止のタイムアウト
+              // 800ミリ秒待ってもシークが終わらなければ強制的に次へ進める
+              const failSafe = setTimeout(resolve, 800); 
+              
+              videoEl.addEventListener('seeked', () => {
+                clearTimeout(failSafe);
+                resolve();
+              }, { once: true });
+              
               videoEl.currentTime = targetTime;
             }
           });
@@ -283,7 +284,6 @@
       }
     });
 
-    // スケッチ風・ポスタリゼーション画像処理フィルター
     function applyFilter(ctx, width, height, type) {
       if (type === 'none') return;
 
